@@ -1,0 +1,152 @@
+/* ==========================================================================
+   SCHEDULER KINETIC ANIMATIONS
+   --------------------------------------------------------------------------
+   Defines the physics for the 80/20 -> 40/60 -> 30/70 layout shifts
+   and the entrance animations for the UI components.
+   ========================================================================== */
+
+/* --- 1. THE PHYSICS ENGINE (Variables) --- */
+:root {
+  /* "Heavy" easing for premium feel (starts fast, lands soft) */
+  --ease-kinetic: cubic-bezier(0.25, 0.8, 0.25, 1);
+  /* "Bouncy" easing for small interactions */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* --- 2. LAYOUT TRANSITIONS (The Panel Resizing) --- */
+/* Applied to the main panels in index.jsx */
+.citadel-panel-transition {
+  transition-property: flex-basis, max-width, opacity, transform;
+  transition-duration: 0.6s;
+  transition-timing-function: var(--ease-kinetic);
+  will-change: flex-basis, max-width;
+}
+
+/* --- 3. UTILITY ANIMATIONS (Used in JSX) --- */
+
+/* Base Class for all entry animations */
+.animate-in {
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-kinetic);
+}
+
+/* Durations */
+.duration-200 { animation-duration: 200ms; }
+.duration-300 { animation-duration: 300ms; }
+.duration-500 { animation-duration: 500ms; }
+.duration-700 { animation-duration: 700ms; }
+
+/* Keyframes: FADE IN */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in {
+  animation-name: fadeIn;
+}
+
+/* Keyframes: SLIDE IN FROM RIGHT (For Wizard/Detail) */
+@keyframes slideInRight {
+  from { 
+    opacity: 0;
+    transform: translateX(20px); 
+  }
+  to { 
+    opacity: 1;
+    transform: translateX(0); 
+  }
+}
+.slide-in-from-right-4 {
+  animation-name: slideInRight;
+}
+
+/* Keyframes: SLIDE IN FROM BOTTOM (For Forms) */
+@keyframes slideInBottom {
+  from { 
+    opacity: 0;
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0); 
+  }
+}
+.slide-in-from-bottom-2 {
+  animation-name: slideInBottom;
+}
+.slide-in-from-bottom-4 {
+  animation-name: slideInBottom;
+}
+
+/* Keyframes: SLIDE IN FROM TOP (For Alerts) */
+@keyframes slideInTop {
+  from { 
+    opacity: 0;
+    transform: translateY(-10px); 
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0); 
+  }
+}
+.slide-in-from-top-2 {
+  animation-name: slideInTop;
+}
+
+/* Keyframes: ZOOM IN (For Modals/Cards) */
+@keyframes zoomIn95 {
+  from { 
+    opacity: 0;
+    transform: scale(0.95); 
+  }
+  to { 
+    opacity: 1;
+    transform: scale(1); 
+  }
+}
+.zoom-in-95 {
+  animation-name: zoomIn95;
+}
+
+/* Keyframes: SPIN (For Loaders) */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* --- 4. SCROLLBAR STYLING (Premium Feel) --- */
+.citadel-scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: #E5E7EB transparent;
+}
+
+.citadel-scroll-area::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.citadel-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.citadel-scroll-area::-webkit-scrollbar-thumb {
+  background-color: #E5E7EB; /* gray-200 */
+  border-radius: 20px;
+}
+
+.citadel-scroll-area::-webkit-scrollbar-thumb:hover {
+  background-color: #D1D5DB; /* gray-300 */
+}
+
+/* --- 5. INTERACTIVE ELEMENTS --- */
+/* Smooth hover states for cards */
+.hover-lift {
+  transition: transform 0.2s var(--ease-kinetic), box-shadow 0.2s var(--ease-kinetic);
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.05);
+}
