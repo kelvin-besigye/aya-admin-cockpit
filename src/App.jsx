@@ -12,13 +12,13 @@ import HomePage from './pages/HomePage';
  * they are instantly bounced back to the login terminal.
  */
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
   
-  return children;
+  return React.cloneElement(children, { onLogout: logout });
 };
 
 /**

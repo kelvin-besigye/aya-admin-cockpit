@@ -273,6 +273,10 @@ const HomePage = ({ user, onLogout }) => {
             <div style={{ padding: '24px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-canvas)' }}>
               <button 
                 onClick={(e) => { e.stopPropagation(); onLogout(); }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(220, 38, 38, 0.2)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(220, 38, 38, 0.1)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.97)'; }}
+                onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; }}
                 style={{ 
                   width: '100%', padding: '14px', borderRadius: '8px', 
                   background: 'rgba(220, 38, 38, 0.1)', border: 'none', 
