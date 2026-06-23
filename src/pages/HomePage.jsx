@@ -272,7 +272,7 @@ const HomePage = ({ user, onLogout }) => {
             {/* Drawer Footer */}
             <div style={{ padding: '24px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-canvas)' }}>
               <button 
-                onClick={onLogout}
+                onClick={(e) => { e.stopPropagation(); onLogout(); }}
                 style={{ 
                   width: '100%', padding: '14px', borderRadius: '8px', 
                   background: 'rgba(220, 38, 38, 0.1)', border: 'none', 

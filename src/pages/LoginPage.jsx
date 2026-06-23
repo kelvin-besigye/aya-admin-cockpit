@@ -110,7 +110,7 @@ const LoginPage = () => {
             <ShieldCheck size={32} strokeWidth={2.5} />
           </div>
           <h1 style={{ fontSize: '24px', fontWeight: '900', letterSpacing: '-0.5px', margin: '0 0 8px 0' }}>
-            AyaBus Citadel
+            AyaBus Admin
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0, fontWeight: '500' }}>
             Enter your credentials to access the secure administrative terminal.
