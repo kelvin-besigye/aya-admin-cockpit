@@ -1,28 +1,23 @@
-import { supabase } from '../../../lib/supabase';
-import { formToDb } from './bus.adapters'; 
+// FIX: Import path changed from '../../../lib/supabase' to '../../../services/api.config'
+import { supabase } from '../../../services/api.config';
+import { formToDb } from './bus.adapters';
 
 /**
- * BUS CONFIG SERVICE LAYER (The Blueprint Engine)
+ * BUS CONFIG SERVICE LAYER (Admin Cockpit)
  * ------------------------------------------------------------------
- * The Live Connector for the Bus Detailing Centre.
- * * * WORLD CLASS STANDARDS:
- * 1. STRICT TYPE CHECKING: Physically verifies binary data before upload.
- * 2. AUTO-UNWRAP: Handles UI library file wrappers (AntD, Dropzone, etc).
- * 3. TRANSPARENCY: Fetches ACTIVE and PENDING items.
- * 4. ATOMICITY: Fails safely if assets cannot be secured.
+ * FIXES APPLIED:
+ * 1. Import path corrected to '../../../services/api.config'
+ * 2. Gallery handling fixed — bus.adapters.formToDb returns gallery as a flat
+ *    array, not { profile, views }. Removed the broken payload.gallery.profile
+ *    and payload.gallery.views references. Gallery images are now uploaded
+ *    as a flat array matching what the DB column expects.
  */
 
-// === PRIVATE HELPER: UPLOAD INTERCEPTOR (Future Proof) ===
+// === PRIVATE HELPER: UPLOAD INTERCEPTOR ===
 const uploadFile = async (input, folder) => {
-  // 1. NULL CHECK: If empty, skip.
   if (!input) return null;
-
-  // 2. EXISTING URL CHECK: If it's already a string, it's safe. Return it.
   if (typeof input === 'string') return input;
 
-  // 3. THE SMART UNWRAPPER
-  // UI libraries often wrap files in objects like { file: ... } or { originFileObj: ... }
-  // We extract the real binary payload.
   let fileToUpload = input;
 
   if (input.file && (input.file instanceof File || input.file instanceof Blob)) {
@@ -31,25 +26,19 @@ const uploadFile = async (input, folder) => {
     fileToUpload = input.originFileObj;
   }
 
-  // 4. THE BINARY GATEKEEPER (The Fix for "application/json" errors)
-  // If the final item is NOT a File or Blob, we CANNOT upload it.
-  // We return the existing preview if available, or null to avoid crashing.
   if (!(fileToUpload instanceof Blob) && !(fileToUpload instanceof File)) {
     console.warn("Citadel Upload: Item is not binary data. Skipping.", input);
-    return input.preview || null; 
+    return input.preview || null;
   }
 
   try {
-    // 5. SANITIZATION (Prevents Storage Errors)
-    // Remove spaces and special chars from filename
     const originalName = fileToUpload.name || `image_${Date.now()}.jpg`;
     const cleanName = originalName.replace(/[^a-zA-Z0-9.]/g, '_');
     const fileName = `${Date.now()}_${cleanName}`;
     const filePath = `${folder}/${fileName}`;
 
-    // 6. UPLOAD TO CLOUD
     const { error: uploadError } = await supabase.storage
-      .from('aya-bus-media') 
+      .from('aya-bus-media')
       .upload(filePath, fileToUpload, {
         cacheControl: '3600',
         upsert: false
@@ -57,7 +46,6 @@ const uploadFile = async (input, folder) => {
 
     if (uploadError) throw uploadError;
 
-    // 7. GET PERMANENT URL
     const { data } = supabase.storage
       .from('aya-bus-media')
       .getPublicUrl(filePath);
@@ -66,7 +54,7 @@ const uploadFile = async (input, folder) => {
 
   } catch (error) {
     console.error("Asset Upload Failed:", error);
-    throw error; // Stop the process. Do not save broken data to DB.
+    throw error;
   }
 };
 
@@ -76,9 +64,6 @@ export const busService = {
   // SECTION A: THE LIVE REGISTRY
   // ==========================================================
 
-  /**
-   * 1. GET REGISTRY (Active & Pending)
-   */
   fetchBusConfigs: async () => {
     try {
       const { data, error } = await supabase
@@ -87,8 +72,7 @@ export const busService = {
           *,
           partners ( id, company_name, partner_id )
         `)
-        // Filter: Show Live Fleet AND Items in Review
-        .in('status', ['ACTIVE', 'PENDING_APPROVAL']) 
+        .in('status', ['ACTIVE', 'PENDING_APPROVAL'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -99,35 +83,24 @@ export const busService = {
     }
   },
 
-  /**
-   * 2. CREATE CONFIGURATION (With Parallel Uploads)
-   */
   createBusConfig: async (formData) => {
     try {
-      // 1. Validation
       if (!formData.partnerId || !formData.busClass) {
         return { success: false, error: "Missing required identification details." };
       }
 
-      // 2. Prepare Payload (Adapter)
       const payload = formToDb(formData);
 
-      // 3. UPLOAD ASSETS (The Magic)
-      // We process all uploads before touching the database.
-      
-      // A. Profile Image
-      if (payload.gallery.profile) {
-        payload.gallery.profile = await uploadFile(payload.gallery.profile, 'buses');
-      }
-      
-      // B. Gallery Images (Parallel execution for speed)
-      if (payload.gallery.views && payload.gallery.views.length > 0) {
-        const uploadPromises = payload.gallery.views.map(img => uploadFile(img, 'buses'));
-        payload.gallery.views = await Promise.all(uploadPromises);
+      // FIX: gallery is a flat array from the adapter, not { profile, views }
+      // Upload each image in the gallery array individually
+      if (Array.isArray(payload.gallery) && payload.gallery.length > 0) {
+        const uploadPromises = payload.gallery.map(img => uploadFile(img, 'buses'));
+        payload.gallery = await Promise.all(uploadPromises);
+        // Remove nulls from failed uploads
+        payload.gallery = payload.gallery.filter(Boolean);
       }
 
-      // 4. Finalize & Insert
-      payload.status = 'PENDING_APPROVAL'; 
+      payload.status = 'PENDING_APPROVAL';
       payload.created_at = new Date().toISOString();
 
       const { data, error } = await supabase
@@ -138,7 +111,6 @@ export const busService = {
 
       if (error) throw error;
 
-      console.log("Citadel: Configuration Created & Assets Uploaded", data);
       return { success: true, data };
 
     } catch (error) {
@@ -147,30 +119,21 @@ export const busService = {
     }
   },
 
-  /**
-   * 3. UPDATE CONFIGURATION (With Asset Management)
-   */
   updateBusConfig: async (id, formData) => {
     try {
       if (!id) return { success: false, error: "No Configuration ID provided." };
 
       const payload = formToDb(formData);
 
-      // 1. UPLOAD NEW ASSETS
-      // The uploadFile helper intelligently skips existing URLs (Strings)
-      if (payload.gallery.profile) {
-        payload.gallery.profile = await uploadFile(payload.gallery.profile, 'buses');
+      // FIX: Same flat array handling for updates
+      if (Array.isArray(payload.gallery) && payload.gallery.length > 0) {
+        const uploadPromises = payload.gallery.map(img => uploadFile(img, 'buses'));
+        payload.gallery = await Promise.all(uploadPromises);
+        payload.gallery = payload.gallery.filter(Boolean);
       }
 
-      if (payload.gallery.views && payload.gallery.views.length > 0) {
-        const uploadPromises = payload.gallery.views.map(img => uploadFile(img, 'buses'));
-        payload.gallery.views = await Promise.all(uploadPromises);
-      }
-
-      // 2. Force Approval Workflow
       payload.status = 'PENDING_APPROVAL';
-      
-      // 3. Update Database
+
       const { data, error } = await supabase
         .from('bus_configs')
         .update(payload)
@@ -180,18 +143,14 @@ export const busService = {
 
       if (error) throw error;
 
-      console.log("Citadel: Configuration Updated", data);
       return { success: true, data };
 
     } catch (error) {
-       console.error("Update Bus Error:", error);
-       return { success: false, error: error.message || "Update Failed" };
+      console.error("Update Bus Error:", error);
+      return { success: false, error: error.message || "Update Failed" };
     }
   },
 
-  /**
-   * 4. APPROVE CONFIGURATION
-   */
   approveBusConfig: async (id) => {
     try {
       const { error } = await supabase
@@ -206,9 +165,6 @@ export const busService = {
     }
   },
 
-  /**
-   * 5. ARCHIVE / DELETE
-   */
   deleteBusConfig: async (id) => {
     try {
       const { error } = await supabase
@@ -238,15 +194,15 @@ export const busService = {
 
       return data.map(d => ({
         id: d.id,
-        label: d.label, 
+        label: d.label,
         currentStep: d.current_step,
         timestamp: d.last_updated,
-        data: d.form_data 
+        data: d.form_data
       }));
 
     } catch (error) {
       console.error("Bus Draft Fetch Error:", error);
-      return []; 
+      return [];
     }
   },
 
@@ -258,7 +214,7 @@ export const busService = {
           id: draftPayload.id,
           label: draftPayload.label || "Untitled Bus Config",
           current_step: draftPayload.currentStep,
-          form_data: draftPayload.data, 
+          form_data: draftPayload.data,
           last_updated: new Date().toISOString()
         });
 

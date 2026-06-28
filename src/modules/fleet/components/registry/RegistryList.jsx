@@ -272,11 +272,11 @@ const RegistryList = ({ onSelectPartner, onEditPartner }) => {
                 <div style={{ display: 'flex', gap: '24px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '700' }}>
                     <MapPin size={16} color={isSuspended ? 'var(--text-muted)' : 'var(--brand-primary)'} /> 
-                    <span>{partner.partner_parks?.[0]?.count || 0} Stages</span>
+                    <span>{partner._parkCount || 0} Stages</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: '700' }}>
                     <CreditCard size={16} color={isSuspended ? 'var(--text-muted)' : 'var(--brand-primary)'} /> 
-                    <span>{partner.partner_financials?.[0]?.count || 0} Accounts</span>
+                    <span>{partner._financialCount || 0} Accounts</span>
                   </div>
                 </div>
 

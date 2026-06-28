@@ -1,13 +1,13 @@
-import { supabase } from '../../../lib/supabase';
+// FIX: Import path changed from '../../../lib/supabase' to '../../../services/api.config'
+import { supabase } from '../../../services/api.config';
 
 /**
- * SCHEDULER SERVICE
+ * SCHEDULER SERVICE (Admin Cockpit)
  * ------------------------------------------------------------------
  * The Brain behind the Automated Scheduler.
- * * * FEATURES:
- * 1. CASCADING SELECTS: Fetch Classes by Partner, Routes by Class.
- * 2. REGISTRY AGGREGATOR: Joins 4 tables deep for the Registry View.
- * 3. DRAFT SAFETY: Sanitizes UUIDs to prevent crashes.
+ *
+ * FIXES APPLIED:
+ * 1. Import path corrected to '../../../services/api.config'
  */
 
 export const schedulerService = {
@@ -16,21 +16,16 @@ export const schedulerService = {
   // 1. WIZARD DROPDOWN DATA (Cascading)
   // ==========================================================
 
-  /**
-   * Fetch All Partners (Step 1.a)
-   */
   fetchPartners: async () => {
     const { data, error } = await supabase
       .from('partners')
       .select('id, company_name, partner_id')
+      .eq('status', 'ACTIVE')
       .order('company_name');
     if (error) throw error;
     return data || [];
   },
 
-  /**
-   * Fetch Classes for a Specific Partner (Step 1.b)
-   */
   fetchClassesByPartner: async (partnerId) => {
     if (!partnerId) return [];
     const { data, error } = await supabase
@@ -41,17 +36,12 @@ export const schedulerService = {
     return data || [];
   },
 
-  /**
-   * Fetch Routes for a Specific Class (Step 1.c)
-   */
   fetchRoutesByClass: async (configId) => {
     if (!configId) return [];
     const { data, error } = await supabase
       .from('routes')
       .select('*')
       .eq('bus_config_id', configId)
-      // Only fetch routes that are approved/active base definitions
-      // .eq('status', 'ACTIVE') // Uncomment if you want strict rules
       .order('departure_time');
     if (error) throw error;
     return data || [];
@@ -61,10 +51,6 @@ export const schedulerService = {
   // 2. THE REGISTRY (READ)
   // ==========================================================
 
-  /**
-   * Fetch All Scheduled Routes
-   * Joins: Schedule -> Route -> Partner & Config
-   */
   fetchSchedules: async () => {
     try {
       const { data, error } = await supabase
@@ -91,12 +77,8 @@ export const schedulerService = {
   // 3. THE AUTOMATION ENGINE (WRITE)
   // ==========================================================
 
-  /**
-   * Create New Schedule (Automate Route)
-   */
   createSchedule: async (payload) => {
     try {
-      // Validation
       if (!payload.route_id || !payload.frequency_type) {
         throw new Error("Missing critical automation data.");
       }
@@ -105,7 +87,7 @@ export const schedulerService = {
         route_id: payload.route_id,
         frequency_type: payload.frequency_type,
         frequency_data: payload.frequency_data || {},
-        status: 'PENDING_APPROVAL', // Default to pending
+        status: 'PENDING_APPROVAL',
         created_by: (await supabase.auth.getUser()).data.user?.id
       };
 
@@ -122,13 +104,13 @@ export const schedulerService = {
     }
   },
 
-  /**
-   * Update Existing Schedule
-   */
   updateSchedule: async (id, payload) => {
     try {
-      // Force status reset on edit for safety
-      const updates = { ...payload, status: 'PENDING_APPROVAL', updated_at: new Date() };
+      const updates = { 
+        ...payload, 
+        status: 'PENDING_APPROVAL', 
+        updated_at: new Date().toISOString() 
+      };
 
       const { error } = await supabase
         .from('route_schedules')
@@ -143,9 +125,6 @@ export const schedulerService = {
     }
   },
 
-  /**
-   * Delete Schedule
-   */
   deleteSchedule: async (id) => {
     try {
       const { error } = await supabase
@@ -165,21 +144,17 @@ export const schedulerService = {
 
   saveDraft: async (draft) => {
     try {
-      // SANITIZATION BOUNCER (The Fix)
       const sanitizeId = (id) => (id && id.length > 0) ? id : null;
 
       const payload = {
         id: draft.id,
         step_number: draft.step,
         label: draft.label || 'Untitled Schedule',
-        
-        // Nullable Foreign Keys
         partner_id: sanitizeId(draft.data?.partnerId),
         class_id: sanitizeId(draft.data?.classId),
         route_id: sanitizeId(draft.data?.routeId),
-        
         frequency_type: draft.data?.frequencyType || null,
-        form_data: draft.data, // Full blob
+        form_data: draft.data,
         last_updated: new Date().toISOString()
       };
 
@@ -201,13 +176,16 @@ export const schedulerService = {
       .from('schedule_drafts')
       .select('*')
       .order('last_updated', { ascending: false });
-    
+
     if (error) return [];
     return data;
   },
 
   deleteDraft: async (id) => {
-    const { error } = await supabase.from('schedule_drafts').delete().eq('id', id);
+    const { error } = await supabase
+      .from('schedule_drafts')
+      .delete()
+      .eq('id', id);
     return { success: !error, error };
   }
 };

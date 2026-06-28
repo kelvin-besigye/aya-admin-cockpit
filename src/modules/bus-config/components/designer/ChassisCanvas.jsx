@@ -2,196 +2,414 @@ import React, { useMemo } from 'react';
 import SeatIcon from './SeatIcon';
 
 /**
- * CHASSIS CANVAS (The Visual Engine)
+ * CHASSIS CANVAS (Admin Cockpit — Visual Engine)
  * ------------------------------------------------------------------
- * Renders the actual bus layout based on mathematical inputs.
- * * * "REAL WORLD" LOGIC:
- * 1. RHD STANDARD: Driver is forced to the Right (Uganda).
- * 2. DYNAMIC AISLE: Calculates where the gap goes based on columns.
- * 3. REAR BENCH: Merges the last row into a full bench if toggled.
- * 4. CSS GRID: Uses modern layouts for perfect alignment.
+ * Renders the bus layout using the v2 PROVEN buildChassisRows algorithm.
+ * This file is the SOURCE OF TRUTH for the chassis grammar.
+ *
+ * Both Partner Portal's SeatMatrix and Consumer Web's ChassisGrid MUST
+ * export the same buildChassisRows signature — they're siblings.
+ *
+ * v2 grammar additions:
+ *   - driver_position: 'LEFT' | 'RIGHT' (default RIGHT)
+ *   - entrance_side:   'NONE' | 'LEFT' | 'RIGHT' (default NONE)
+ *   - entrance_row:    1..total_rows (default 1)
+ *   - bench_position:  'MIDDLE' | 'RIGHT' (default MIDDLE)
+ *   - conductor_count: 0 | 1 | 2 (default 0)
+ *   - conductor_side:  'LEFT' | 'RIGHT' (default LEFT)
+ *   - has_invalid_seat: boolean (default false)
+ *   - invalid_seat_side: 'LEFT' | 'RIGHT' (default LEFT)
  */
 
-const ChassisCanvas = ({ 
-  layout, // { total_rows, cols_left, cols_right, has_rear_bench }
-  onSeatClick // Optional: for future interactivity (e.g. blocking a seat)
-}) => {
-  
-  // 1. GRID MATH CALCULATOR
-  // We memorize this so it doesn't recalculate on every hover.
-  const { gridTemplate, seats } = useMemo(() => {
-    
-    // A. SETUP
-    const rows = [];
-    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // Skip I/O to avoid confusion with 1/0
-    // Ensure we have numbers to work with (fallback to defaults if undefined)
-    const cLeft = layout.cols_left || 2;
-    const cRight = layout.cols_right || 2;
-    const tRows = layout.total_rows || 11;
-    
-    // B. GENERATE DRIVER ROW (ROW 0)
-    // In Uganda (RHD), Driver is on the RIGHT. Entrance is on the LEFT.
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // skip I/O
+
+/**
+ * THE PROVEN ALGORITHM (v2).
+ * Returns an array of { left: Slot[], middle: Slot[], right: Slot[], meta }.
+ */
+export function buildChassisRows(layout) {
+  const {
+    total_rows        = 11,
+    cols_left         = 2,
+    cols_right        = 3,
+    has_rear_bench    = true,
+    bench_position    = 'MIDDLE',
+    driver_position   = 'RIGHT',
+    entrance_side     = 'NONE',
+    entrance_row      = 1,
+    front_rows        = [],
+    conductor_count   = 0,
+    conductor_side    = 'LEFT',
+    has_invalid_seat  = false,
+    invalid_seat_side = 'LEFT',
+  } = layout || {};
+
+  const rows = [];
+  let rowNumber = 1;
+  let conductorCounter = 0;
+
+  const isEntranceRow = (r) => entrance_side !== 'NONE' && r === entrance_row;
+  const isDriverRow   = (r) => r === 1;
+
+  // ── PASS 1 — front_rows legacy override ──
+  for (const row of front_rows) {
+    const leftArr  = Array.isArray(row.left)  ? row.left  : [];
+    const rightArr = Array.isArray(row.right) ? row.right : [];
+
+    const labelSlot = (slot, side) => {
+      const width = side === 'left' ? cols_left : cols_right;
+      if (slot.type === 'SEAT') {
+        const letterIdx = (side === 'left' ? leftArr : rightArr)
+          .slice(0, (side === 'left' ? leftArr : rightArr).indexOf(slot))
+          .filter(s => s.type === 'SEAT').length;
+        return {
+          type: 'SEAT',
+          label: `${rowNumber}${ALPHABET[letterIdx] || '?'}`,
+          bookable: true,
+        };
+      }
+      if (slot.type === 'CONDUCTOR') {
+        conductorCounter++;
+        return { type: 'CONDUCTOR', label: `SS${conductorCounter}`, bookable: false };
+      }
+      if (slot.type === 'DRIVER')  return { type: 'DRIVER',  label: null, bookable: false };
+      if (slot.type === 'ENTRY')   return { type: 'ENTRY',   label: 'E',  bookable: false };
+      if (slot.type === 'INVALID') return { type: 'INVALID', label: '1X', bookable: false };
+      return { type: 'UNKNOWN', label: '?', bookable: false };
+    };
+
     rows.push({
-      id: 'row-driver',
+      left:    leftArr.map(s => labelSlot(s, 'left')),
+      middle:  [{ type: 'AISLE', label: null, bookable: false }],
+      right:   rightArr.map(s => labelSlot(s, 'right')),
+      isFrontRow: true,
+      isBench: false,
       isDriverRow: true,
-      items: [] // Handled manually in render
+      isEntranceRow: false,
     });
+    rowNumber++;
+  }
 
-    // C. GENERATE PASSENGER ROWS
-    let charIndex = 0; // Tracks A, B, C... across the row
-    
-    for (let r = 1; r <= tRows; r++) {
-      const isLastRow = r === tRows;
-      const isBench = isLastRow && layout.has_rear_bench;
-      
-      const rowItems = [];
-      charIndex = 0; // Reset for each row if we want A, B... to restart? 
-      // Actually, standard bus numbering usually goes 1A, 1B... 2A, 2B. 
-      // So we reset charIndex for each row.
+  // ── PASS 2 — generated rows ──
+  const startRow = front_rows.length > 0 ? front_rows.length + 1 : 1;
+  const totalToRender = Math.max(startRow - 1, total_rows);
 
-      // LEFT SIDE SEATS
-      for (let c = 0; c < cLeft; c++) {
-        rowItems.push({
-          type: 'STANDARD',
-          label: `${r}${alphabet[charIndex] || '?'}`,
-          id: `${r}-${alphabet[charIndex]}`
-        });
-        charIndex++;
+  for (let r = startRow; r <= totalToRender; r++) {
+    const isLast = r === totalToRender;
+    const isBench = isLast && has_rear_bench;
+
+    const isDriverR   = isDriverRow(r);
+    const isEntranceR = isEntranceRow(r);
+    const isCollision = isDriverR && isEntranceR;
+
+    const left  = [];
+    const right = [];
+    const middle = [];
+
+    // ── LEFT SIDE ──
+    if (isCollision && entrance_side === 'LEFT') {
+      // Driver wins the LEFT, entrance stays on RIGHT
+      left.push({ type: 'DRIVER', label: null, bookable: false });
+    } else if (isCollision && entrance_side !== 'LEFT') {
+      // driver on right, entrance on left
+      left.push({ type: 'ENTRY', label: 'E', bookable: false });
+    } else if (isDriverR && driver_position === 'LEFT') {
+      left.push({ type: 'DRIVER', label: null, bookable: false });
+    } else if (isEntranceR && entrance_side === 'LEFT') {
+      left.push({ type: 'ENTRY', label: 'E', bookable: false });
+    } else if (r === 1 && front_rows.length === 0) {
+      // Default front row LEFT — conductor + invalid + seats
+      if (conductor_side === 'LEFT' && conductor_count > 0) {
+        const maxC = Math.min(conductor_count, cols_left);
+        for (let i = 0; i < maxC; i++) {
+          left.push({ type: 'CONDUCTOR', label: `SS${++conductorCounter}`, bookable: false });
+        }
       }
-
-      // THE AISLE (Or Middle Seat if Bench)
-      if (isBench) {
-        // The "M" Seat (Golden Seat)
-        rowItems.push({
-          type: 'REAR_MIDDLE',
-          label: 'M',
-          id: `${r}-M`
-        });
-      } else {
-        // The Empty Walkway
-        rowItems.push({ type: 'AISLE' });
+      if (has_invalid_seat && invalid_seat_side === 'LEFT' && left.length < cols_left) {
+        left.push({ type: 'INVALID', label: '1X', bookable: false });
       }
-
-      // RIGHT SIDE SEATS
-      for (let c = 0; c < cRight; c++) {
-        rowItems.push({
-          type: 'STANDARD',
-          label: `${r}${alphabet[charIndex] || '?'}`,
-          id: `${r}-${alphabet[charIndex]}`
-        });
-        charIndex++;
+      let letterIdx = left.filter(s => s.type === 'SEAT').length;
+      while (left.length < cols_left) {
+        left.push({ type: 'SEAT', label: `${rowNumber}${ALPHABET[letterIdx] || '?'}`, bookable: true });
+        letterIdx++;
       }
-
-      rows.push({ id: `row-${r}`, items: rowItems });
+    } else {
+      // Normal row LEFT
+      for (let c = 0; c < cols_left; c++) {
+        left.push({ type: 'SEAT', label: `${rowNumber}${ALPHABET[c] || '?'}`, bookable: true });
+      }
     }
 
-    // D. CALCULATE CSS GRID TEMPLATE
-    // e.g., "1fr 1fr 50px 1fr 1fr" (Left Cols + Aisle + Right Cols)
-    const fr = '1fr ';
-    const template = `${fr.repeat(cLeft)} 50px ${fr.repeat(cRight)}`;
+    // ── RIGHT SIDE ──
+    if (isCollision && entrance_side === 'RIGHT') {
+      // Driver wins the RIGHT, entrance stays on LEFT
+      right.push({ type: 'DRIVER', label: null, bookable: false });
+    } else if (isCollision && entrance_side !== 'RIGHT') {
+      right.push({ type: 'ENTRY', label: 'E', bookable: false });
+    } else if (isDriverR && driver_position === 'RIGHT') {
+      right.push({ type: 'DRIVER', label: null, bookable: false });
+    } else if (isEntranceR && entrance_side === 'RIGHT') {
+      right.push({ type: 'ENTRY', label: 'E', bookable: false });
+    } else if (r === 1 && front_rows.length === 0) {
+      // Default front row RIGHT
+      if (conductor_side === 'RIGHT' && conductor_count > 0) {
+        const maxC = Math.min(conductor_count, cols_right);
+        for (let i = 0; i < maxC; i++) {
+          right.push({ type: 'CONDUCTOR', label: `SS${++conductorCounter}`, bookable: false });
+        }
+      }
+      if (has_invalid_seat && invalid_seat_side === 'RIGHT' && right.length < cols_right) {
+        right.push({ type: 'INVALID', label: '1X', bookable: false });
+      }
+      let letterIdx = right.filter(s => s.type === 'SEAT').length;
+      while (right.length < cols_right) {
+        right.push({ type: 'SEAT', label: `${rowNumber}${ALPHABET[letterIdx] || '?'}`, bookable: true });
+        letterIdx++;
+      }
+    } else {
+      // Normal row RIGHT
+      for (let c = 0; c < cols_right; c++) {
+        right.push({ type: 'SEAT', label: `${rowNumber}${ALPHABET[c] || '?'}`, bookable: true });
+      }
+    }
 
-    return { gridTemplate: template, seats: rows };
+    // ── MIDDLE COLUMN ──
+    if (isBench && bench_position === 'MIDDLE') {
+      middle.push({ type: 'REAR_MIDDLE', label: 'M', bookable: true });
+    } else if (isBench && bench_position === 'RIGHT') {
+      // Legacy: M on the right column. Rearrange right to put M as the only slot.
+      right.length = 0;
+      right.push({ type: 'REAR_MIDDLE', label: 'M', bookable: true });
+      middle.push({ type: 'AISLE', label: null, bookable: false });
+    } else {
+      middle.push({ type: 'AISLE', label: null, bookable: false });
+    }
 
-  }, [layout]);
+    rows.push({
+      left,
+      middle,
+      right,
+      isFrontRow: r === 1 && front_rows.length === 0,
+      isBench,
+      isDriverRow: isDriverR,
+      isEntranceRow: isEntranceR,
+      rowNumber,
+    });
+    rowNumber++;
+  }
 
-  // 2. RENDERER
+  return rows;
+}
+
+// ── Maps a slot type → SeatIcon type prop ──
+const slotTypeToIconType = (slot) => {
+  switch (slot.type) {
+    case 'SEAT':         return 'STANDARD';
+    case 'CONDUCTOR':    return 'CONDUCTOR';
+    case 'DRIVER':       return 'DRIVER';
+    case 'ENTRY':        return 'ENTRY';
+    case 'INVALID':      return 'INVALID';
+    case 'REAR_MIDDLE':  return 'REAR_MIDDLE';
+    default:             return 'STANDARD';
+  }
+};
+
+// ── COMPONENT ──
+const ChassisCanvas = ({
+  layout,
+  onSeatClick,
+  highlightSeat,
+  small = false,
+}) => {
+  const rows = useMemo(() => buildChassisRows(layout || {}), [layout]);
+
+  const colsLeft  = layout?.cols_left  ?? 2;
+  const colsRight = layout?.cols_right ?? 3;
+
+  // gridTemplate: `1fr 1fr ... {aisle} 1fr 1fr 1fr`
+  const seatTemplate = (() => {
+    const left  = '1fr '.repeat(colsLeft).trim();
+    const right = '1fr '.repeat(colsRight).trim();
+    return `${left} 44px ${right}`;
+  })();
+
+  const seatSize = small ? 32 : 40;
+
   return (
-    <div style={{ 
-      display: 'flex', flexDirection: 'column', alignItems: 'center', 
-      padding: '40px', background: 'var(--bg-canvas)', borderRadius: '16px',
-      border: '1px solid var(--border-subtle)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.02)',
-      minHeight: '500px', overflowY: 'auto'
-    }}>
-      
-      {/* THE BUS BODY (Visual Shell) */}
-      <div style={{ 
-        width: '100%', maxWidth: '400px', 
-        background: 'white', 
-        borderRadius: '40px 40px 12px 12px', // Aerodynamic Front
-        border: '4px solid var(--text-main)', 
-        padding: '30px 20px',
-        position: 'relative',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.1)'
-      }}>
-        
-        {/* WINDSHIELD EFFECT */}
-        <div style={{ 
-          position: 'absolute', top: '10px', left: '20px', right: '20px', height: '15px', 
-          background: 'linear-gradient(180deg, rgba(200,230,255,0.4), transparent)', 
-          borderRadius: '20px' 
-        }} />
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: small ? '20px' : '40px',
+        background: 'var(--bg-canvas)',
+        borderRadius: 16,
+        border: '1px solid var(--border-subtle)',
+        boxShadow: 'inset 0 0 20px rgba(0,0,0,0.02)',
+        minHeight: small ? 240 : 500,
+        overflowY: 'auto',
+      }}
+    >
+      {/* THE BUS BODY */}
+      <div
+        style={{
+          width: '100%',
+          maxWidth: small ? 280 : 460,
+          background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)',
+          borderRadius: '40px 40px 12px 12px',
+          border: '3px solid var(--text-main)',
+          padding: small ? '16px 12px' : '30px 20px',
+          position: 'relative',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.10)',
+        }}
+      >
+        {/* Windshield glare */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 10,
+            left: 20,
+            right: 20,
+            height: 15,
+            background:
+              'linear-gradient(180deg, rgba(200,230,255,0.55), transparent)',
+            borderRadius: 20,
+            pointerEvents: 'none',
+          }}
+        />
 
-        {/* THE GRID */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          
-          {seats.map((row) => {
-            
-            // === DRIVER ROW (FIXED SPACING) ===
-            if (row.isDriverRow) {
-              return (
-                <div key={row.id} style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'flex-end', 
-                  // height: '60px', // REMOVED: Let it grow naturally
-                  paddingBottom: '24px', // ADDED: Breathing room for "DRVR" label
-                  borderBottom: '2px dashed var(--border-subtle)', 
-                  marginBottom: '10px' 
-                }}>
-                  {/* Entrance Step */}
-                  <div style={{ 
-                    width: '40px', height: '50px', 
-                    borderLeft: '4px solid var(--status-success)', 
-                    display: 'flex', alignItems: 'center', paddingLeft: '8px', 
-                    fontSize: '9px', fontWeight: '800', 
-                    color: 'var(--status-success)', 
-                    writingMode: 'vertical-rl', transform: 'rotate(180deg)' 
-                  }}>
-                    ENTRANCE
-                  </div>
-                  
-                  {/* Driver Seat */}
-                  <SeatIcon type="DRIVER" size={44} />
-                </div>
-              );
-            }
+        <div style={{ display: 'flex', flexDirection: 'column', gap: small ? 8 : 12 }}>
+          {rows.map((row, rowIdx) => {
+            const isBench = row.isBench;
+            const allSlots = [...row.left, ...row.middle, ...row.right];
 
-            // === STANDARD ROW RENDER ===
             return (
-              <div key={row.id} style={{ 
-                display: 'grid', 
-                gridTemplateColumns: gridTemplate, 
-                gap: '8px', 
-                alignItems: 'center' 
-              }}>
-                {row.items.map((seat, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'center' }}>
-                    {seat.type === 'AISLE' ? (
-                      // The Walkway
-                      <div style={{ width: '2px', height: '100%', background: 'var(--border-subtle)', opacity: 0.3 }} />
-                    ) : (
-                      // The Atom
-                      <SeatIcon 
-                        type={seat.type} 
-                        label={seat.label} 
-                        size={40} 
-                        // Pass click handler if needed in future
+              <div
+                key={`row-${rowIdx}`}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: seatTemplate,
+                  gap: small ? 4 : 6,
+                  alignItems: 'center',
+                  position: 'relative',
+                }}
+              >
+                {allSlots.map((slot, si) => {
+                  if (slot.type === 'AISLE') {
+                    return (
+                      <div
+                        key={`aisle-${si}`}
+                        style={{
+                          width: 1,
+                          height: small ? 24 : 32,
+                          background:
+                            'repeating-linear-gradient(180deg, var(--border-subtle) 0 4px, transparent 4px 8px)',
+                          margin: '0 auto',
+                          opacity: 0.5,
+                        }}
+                        aria-hidden
                       />
-                    )}
+                    );
+                  }
+                  const iconType = slotTypeToIconType(slot);
+                  const isHighlighted = highlightSeat && slot.label === highlightSeat;
+                  return (
+                    <div
+                      key={si}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        position: 'relative',
+                        outline: isHighlighted
+                          ? '2px solid var(--brand-primary, #CEAC5C)'
+                          : 'none',
+                        borderRadius: 8,
+                        padding: isHighlighted ? 2 : 0,
+                        transition: 'outline 0.2s',
+                      }}
+                    >
+                      <SeatIcon
+                        type={iconType}
+                        label={slot.label || ''}
+                        size={seatSize}
+                      />
+                    </div>
+                  );
+                })}
+
+                {/* Driver row marker */}
+                {row.isDriverRow && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: -22,
+                      left: 0,
+                      fontSize: 9,
+                      fontWeight: 900,
+                      color: 'var(--text-muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '1px',
+                    }}
+                  >
+                    FRONT (Driver Row)
                   </div>
-                ))}
+                )}
+
+                {/* Entrance row marker */}
+                {row.isEntranceRow && !row.isDriverRow && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: -22,
+                      left: 0,
+                      fontSize: 9,
+                      fontWeight: 900,
+                      color: 'var(--status-success, #22C55E)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '1px',
+                    }}
+                  >
+                    ENTRANCE ROW
+                  </div>
+                )}
+
+                {/* Bench row marker */}
+                {row.isBench && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: -22,
+                      left: 0,
+                      fontSize: 9,
+                      fontWeight: 900,
+                      color: 'var(--status-warning, #F59E0B)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '1px',
+                    }}
+                  >
+                    REAR BENCH
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-
       </div>
 
-      {/* FOOTER STATS */}
-      <div style={{ marginTop: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', fontFamily: 'monospace' }}>
-        FRONT (NORTH) <br/> ▲
-      </div>
-
+      {!small && (
+        <div
+          style={{
+            marginTop: 36,
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            fontSize: 11,
+            fontFamily: 'monospace',
+            letterSpacing: '1px',
+          }}
+        >
+          ▲ FRONT (NORTH)
+        </div>
+      )}
     </div>
   );
 };

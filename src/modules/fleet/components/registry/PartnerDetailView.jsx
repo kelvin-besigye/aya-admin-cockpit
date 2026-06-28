@@ -152,10 +152,10 @@ const PartnerDetailView = ({ partner, onClose }) => {
                           <Users size={14} color="#3b82f6" />
                       </div>
                       <div>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{contact.full_name}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{contact.fullName}</div>
                           <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--brand-primary)', marginBottom: '4px' }}>{contact.role}</div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Phone size={10} /> {contact.phone_primary}
+                            <Phone size={10} /> {contact.phonePrimary}
                           </div>
                       </div>
                     </div>

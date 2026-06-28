@@ -1,11 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
+// ─── SINGLE CLIENT GUARANTEE ────────────────────────────────────────────────
+// This file intentionally re-exports from api.config.js instead of calling
+// createClient() again. Having two createClient() calls causes the
+// "Multiple GoTrueClient instances" warning and sends some requests as
+// unauthenticated (triggering 403s on RLS-protected tables).
+//
+// Every file that imports { supabase } from './supabase' (or wherever this
+// sits) continues to work with zero changes — they just get the one true
+// client instead of a second one.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Access Environment Variables (Vite Standard)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase Environment Variables');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export { supabase } from '../services/api.config';
